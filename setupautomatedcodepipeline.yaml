@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create a Automated codepipeline setup using Github"
+Metadata:
+    'AWS::CloudFormation::Interface':
+        ParameterGroups:
+            - Label:
+                default: GitHub Settings
+              Parameters:
+                - GitHubOAuthToken
+                - GitHubOwner
+                - GitHubRepo
+                - GitHubBranch
+            - Label:
+                default: S3 settings
+              Parameters:
+                - ArtifactsBucketName
+        ParameterLabels:
+            GitHubOAuthToken:
+                default: GitHub OAuth Token
+            GitHubOwner:
+                default: GitHub Owner
+            GitHubRepo:
+                default: GitHub Repo
+            GitHubBranch:
+                default: GitHub Branch
+            ArtifactsBucketName:
+                default: Artifacts Bucket Name
+        
+Parameters:
+    GitHubOAuthToken:
+        Type: String
+        Default: "xxxxxxxxxxxxxxxxxxx"
+        NoEcho: true
+        MinLength: 40
+        MaxLength: 40
+        AllowedPattern: '[a-z0-9]*'
+        Description: With this Token a Webhook will be created for the repo
+    GithubOwner:
+        Type: String
+        Default: ShaikBasha1247
+        AllowedPattern: "[A-Za-z0-9-]+"
+        Description: The Owner of the GitHub Repo
+    GitHubRepo:
+        Type: String
+        Default: AWScodebuildtest
+        Description: The name of the GitHub Repo
+    GitHubBranch:
+        Type: String
+        Default: master
+        Description: The name of the GitHub Repo Branch which which shoul be used
+    ArtifactsBucketName:
+        Type: String
+        Default: artifacts-store124756789
+        Description: To store the artifacts of the processes
+Resources:
+    Webhook:
+        Type: AWS::CodePipeline::Webhook
+        Properties:
+            Authentication: GITHUB_HMAC
+            AuthenticationConfiguration:
+                SecretToken: !Ref GitHubOAuthToken
+            RegisterWithThirdParty: True
+            Filters:
+                - JsonPath: "$.ref"
+                  MatchEquals: refs/heads/{Branch}
+            TargetAction: Source
+            TargetPipeline: !Ref WebhookPipeline
+            TargetPipelineVersion: !GetAtt WebhookPipeline.Version
+            Name: "GitWebhook"
+    WebhookPipeline:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            Name: "GitWebhookPipeline"
+            RoleArn: !GetAtt CodepipelineRoles.Arn
+            ArtifactStore:
+                Type: S3
+                Location: !Ref ArtifactsBucket
+            RestartExecutionOnUpdate: True
+            Stages:
+                - 
+                    Name: Source
+                    Actions: 
+                        - 
+                            Name: Source
+                            ActionTypeId:
+                                Category: Source
+                                Owner: ThirdParty
+                                Version: 1
+                                Provider: GitHub
+                            Configuration: 
+                                Owner: !Ref GithubOwner
+                                Repo: !Ref GitHubRepo
+                                Branch: !Ref GitHubBranch
+                                OAuthToken: !Ref GitHubOAuthToken
+                                PollForSourceChanges: 'false'
+                            InputArtifacts: []
+                            OutputArtifacts:
+                                - Name: SourceArtifact
+                            RunOrder: 1
+                -
+                    Name: Build
+                    Actions: 
+                        -
+                            Name: "CodeBuild"
+                            ActionTypeId:
+                                Category: Build
+                                Owner: AWS
+                                Provider: CodeBuild
+                                Version: 1
+                            Configuration:
+                                ProjectName: !Ref WebhookCodeBuild
+                            InputArtifacts: 
+                                - Name: SourceArtifact
+                            OutputArtifacts: 
+                                - Name: BuildArtifact
+                            RunOrder: 1
+    
+    WebhookCodeBuild:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Artifacts:
+                Type: CODEPIPELINE
+            Description: Codebuild for Gitcode
+            Environment:
+                ComputeType: BUILD_GENERAL1_SMALL
+                Type: LINUX_CONTAINER
+                Image: aws/codebuild/standard:2.0
+                PrivilegedMode: True
+            Name: WebhookBuild
+            QueuedTimeoutInMinutes: 10
+            ServiceRole: !Ref WebhookCodebuildRoles
+            Source: 
+                Type: CODEPIPELINE
+            TimeoutInMinutes: 60
+    WebhookCodeBuildPolicies:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            Description: WebhookCodeBuildPolicies
+            ManagedPolicyName: CodeBuildAccess
+            Path: "/"
+            PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    - Effect: Allow
+                      Action: logs:*
+                      Resource: '*'
+                    - Effect: Allow
+                      Action: s3:*
+                      Resource: '*'
+                    - Effect: Allow
+                      Action: 
+                        - "ecr:GetAuthorizationToken"
+                        - "ecr:BatchCheckLayerAvailability"
+                        - "ecr:GetDownloadUrlForLayer"
+                        - "ecr:GetRepositoryPolicy"
+                        - "ecr:DescribeRepositories"
+                        - "ecr:ListImages"
+                        - "ecr:DescribeImages"
+                        - "ecr:BatchGetImage"
+                        - "ecr:GetLifecyclePolicy"
+                        - "ecr:GetLifecyclePolicyPreview"
+                        - "ecr:ListTagsForResource"
+                        - "ecr:DescribeImageScanFindings"
+                        - "ecr:InitiateLayerUpload"
+                        - "ecr:UploadLayerPart"
+                        - "ecr:CompleteLayerUpload"
+                        - "ecr:PutImage"
+                      Resource: '*'
+    WebhookCodebuildRoles:
+        Type: AWS::IAM::Role
+        Properties:
+            Description: WebhookCodebuildRoles
+            ManagedPolicyArns:
+                - !Ref WebhookCodeBuildPolicies
+            AssumeRolePolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Action:
+                        - 'sts:AssumeRole'
+                      Effect: Allow
+                      Principal:
+                        Service:
+                            - "codebuild.amazonaws.com"
+            Path: /
+            RoleName: CodebuildFullaccessRole
+
+    ArtifactsBucket:
+        Type: AWS::S3::Bucket
+        DeletionPolicy: Delete
+        Properties:
+            BucketName: !Ref ArtifactsBucketName
+            VersioningConfiguration:
+                Status: Enabled
+
+
+    CodepipelineManagedPolicies:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            Description: CodepipelineManagedPolicies
+            Path: "/"
+            ManagedPolicyName: Codepipelineaccess
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Action: 
+                        - codepipeline:*
+                      Resource: '*'
+                    - Effect: Allow
+                      Action: s3:*
+                      Resource: [
+                        !Join [ '', ['arn:aws:s3:::',!Ref ArtifactsBucketName] ],
+                        !Join [ '', ['arn:aws:s3:::',!Ref ArtifactsBucketName, '/*'] ]
+                      ]
+                    - Effect: Allow
+                      Action: logs:*
+                      Resource: '*'
+                    - Effect: Allow
+                      Action: codebuild:*
+                      Resource: '*'
+                         
+    CodepipelineRoles:
+        Type: AWS::IAM::Role
+        Properties: 
+            Description: CodepipelineRoles
+            RoleName: 'CodePipeline_Role'
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    Effect: Allow
+                    Principal:
+                        Service: codepipeline.amazonaws.com
+                    Action: sts:AssumeRole
+            ManagedPolicyArns:
+                - !Ref CodepipelineManagedPolicies
+Outputs:
+    Output1:
+        Value: !Ref WebhookPipeline
+    Output2:
+        Value: !Ref WebhookCodeBuild
