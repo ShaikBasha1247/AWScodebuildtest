@@ -8,17 +8,16 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
-      - RESPOSITORY_URI=052273132391.dkr.ecr.ap-south-1.amazonaws.com/awstestcontainer
+      - RESPOSITORY_URI=881786320105.dkr.ecr.us-east-1.amazonaws.com/arlas-data-science-tgs-ai
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | awk -F":" '{print $2}')
   build:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image...          
-      - docker build -t $RESPOSITORY_URI:latest .
-      - docker tag $RESPOSITORY_URI:latest $RESPOSITORY_URI:$IMAGE_TAG
+      - docker build -t $RESPOSITORY_URI:webhooktest .
   post_build:
     commands:
       - echo Build completed on `date`
       - echo Pushing the Docker image...
-      - docker push $RESPOSITORY_URI:$IMAGE_TAG
+      - docker push $RESPOSITORY_URI:webhooktest
