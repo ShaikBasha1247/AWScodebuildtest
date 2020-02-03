@@ -1,4 +1,4 @@
-FROM python:2.7.17-slim-buster
+FROM python:latest
 MAINTAINER Basha "shaik.basha@affineanayltics.com"
 COPY . /app
 WORKDIR /app
